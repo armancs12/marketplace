@@ -4,6 +4,9 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager, jwt_required
 from flask_jwt_extended import create_access_token, create_refresh_token
 from flask_jwt_extended import current_user
+from flask_pydantic import validate
+from pydantic import BaseModel, EmailStr, validator
+
 
 app = Flask(__name__)
 
@@ -135,54 +138,94 @@ def user_lookup_callback(jwt_header, jwt_data):
 API_ROUTE = "api/v1"
 
 
+class ErrorResponse(BaseModel):
+    msg: str
+
+
 AUTH_ROUTE = "auth"
 
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+
+    @validator('name')
+    def name_must_contain_space(cls, name):
+        if ' ' not in name:
+            raise ValueError('should be full name')
+        return name.title()
+
+
+class ProfileResponse(BaseModel):
+    id: int
+    first_name: str
+    last_name: str
+    email: EmailStr
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+
+
+class RefreshTokenResponse(BaseModel):
+    access_token: str
+
+
+@app.route(f"/{API_ROUTE}/{AUTH_ROUTE}/register", methods=['POST'])
+@validate()
+def auth_register(body: RegisterRequest):
+    user_exist = User.query.filter_by(email=body.email).one_or_none()
+    if user_exist:
+        return ErrorResponse(msg="User already exists!"), 400
+
+    user = User(body.name, body.email, body.password)
+    db.session.add(user)
+    db.session.commit()
+
+    return ProfileResponse(
+        id=user.id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email), 201
+
+
 @app.route(f"/{API_ROUTE}/{AUTH_ROUTE}/login", methods=['POST'])
-def auth_login():
-    data: dict = request.get_json() or {}
-    email = data.get('email', None)
-    password = data.get('password', None)
+@validate()
+def auth_login(body: LoginRequest):
+    user = User.query.filter_by(email=body.email).one_or_none()
 
-    if email and password:
-        user = User.query.filter_by(email=email).one_or_none()
+    if user and user.check_password(body.password):
+        access = create_access_token(identity=user)
+        refresh = create_refresh_token(identity=user)
+        return LoginResponse(access_token=access, refresh_token=refresh)
 
-        if user and user.check_password(password):
-            access = create_access_token(identity=user)
-            refresh = create_refresh_token(identity=user)
-            return {"access_token": access, "refresh_token": refresh}
-
-    return {"msg": "Email or password is not correct!"}
+    return ErrorResponse(msg="Email or password is not correct!"), 400
 
 
 @app.route(f"/{API_ROUTE}/{AUTH_ROUTE}/refresh_token", methods=['POST'])
 @jwt_required(refresh=True)
 def auth_refresh_token():
     access = create_access_token(identity=current_user)
-    return {"access_token": access}
+    return RefreshTokenResponse(access_token=access)
 
 
 @app.route(f"/{API_ROUTE}/{AUTH_ROUTE}/profile")
 @jwt_required()
 def auth_profile():
-    return {
-        "id": current_user.id,
-        "first_name": current_user.first_name,
-        "last_name": current_user.last_name,
-        "email": current_user.email
-    }
+    return ProfileResponse(
+        id=current_user.id,
+        first_name=current_user.first_name,
+        last_name=current_user.last_name,
+        email=current_user.email
+    )
 
 
 if __name__ == "__main__":
-    user1 = User("Bruce Wayne", "bruce@wayne.com", "iambatman")
-    user2 = User("Bruce Jr. Wayne", "brucejr@wayne.com", "mydadbatman")
-    user3 = User("Test User Purposes", "testuser@mail.com", "password")
-
-    db.drop_all()
-    db.create_all()
-
-    db.session.add(user1)
-    db.session.add(user2)
-    db.session.add(user3)
-    db.session.commit()
-
     app.run(port=8080, debug=True)
