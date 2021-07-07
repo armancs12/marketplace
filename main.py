@@ -178,7 +178,7 @@ class RefreshTokenResponse(BaseModel):
     access_token: str
 
 
-@app.route(f"/{API_ROUTE}/{AUTH_ROUTE}/register", methods=['POST'])
+@app.post(f"/{API_ROUTE}/{AUTH_ROUTE}/register")
 @validate()
 def auth_register(body: RegisterRequest):
     user_exist = User.query.filter_by(email=body.email).one_or_none()
@@ -196,7 +196,7 @@ def auth_register(body: RegisterRequest):
         email=user.email), 201
 
 
-@app.route(f"/{API_ROUTE}/{AUTH_ROUTE}/login", methods=['POST'])
+@app.post(f"/{API_ROUTE}/{AUTH_ROUTE}/login")
 @validate()
 def auth_login(body: LoginRequest):
     user = User.query.filter_by(email=body.email).one_or_none()
@@ -209,14 +209,14 @@ def auth_login(body: LoginRequest):
     return ErrorResponse(msg="Email or password is not correct!"), 400
 
 
-@app.route(f"/{API_ROUTE}/{AUTH_ROUTE}/refresh_token", methods=['POST'])
+@app.post(f"/{API_ROUTE}/{AUTH_ROUTE}/refresh_token")
 @jwt_required(refresh=True)
 def auth_refresh_token():
     access = create_access_token(identity=current_user)
     return RefreshTokenResponse(access_token=access)
 
 
-@app.route(f"/{API_ROUTE}/{AUTH_ROUTE}/profile")
+@app.get(f"/{API_ROUTE}/{AUTH_ROUTE}/profile")
 @jwt_required()
 def auth_profile():
     return ProfileResponse(
